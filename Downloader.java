@@ -6,6 +6,9 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.io.InputStream;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class Downloader {
 
@@ -41,15 +44,13 @@ public class Downloader {
                     .build();
 
             //response is what the server gives back to the client
-            HttpResponse<byte[]> response = client.send(
+            HttpResponse<InputStream> response = client.send(
                     request,
-                    HttpResponse.BodyHandlers.ofByteArray()
+                    HttpResponse.BodyHandlers.ofInputStream()
             );
 
             if(response.statusCode() == 206) {
                 System.out.println("Partial download successful");
-
-                System.out.println("Bytes received: " + response.body().length);
 
                 long size = response.headers()
                         .firstValueAsLong("Content-Length")
@@ -69,11 +70,22 @@ public class Downloader {
                         StandardOpenOption.WRITE
                 )) {
 
-                    //put the downloaded bytes into a ByteBuffer
-                    ByteBuffer buffer = ByteBuffer.wrap(response.body());
+                    InputStream input = response.body();
 
-                    //write the bytes in the file starting from the position given
-                    channel.write(buffer, start);
+                    byte[] buffer = new byte[8192];
+                    long position = start;
+                    int bytesRead;
+
+                    while ((bytesRead = input.read(buffer)) != -1) {
+
+                        ByteBuffer byteBuffer = ByteBuffer.wrap(buffer, 0, bytesRead);
+
+                        while (byteBuffer.hasRemaining()) {
+                            position += channel.write(byteBuffer, position);
+                        }
+                    }
+
+                    input.close();
                 }
 
                 System.out.println("written to downloaded.file");
