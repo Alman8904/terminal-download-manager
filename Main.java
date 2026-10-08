@@ -1,12 +1,3 @@
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
-import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
-
 public class Main {
     public static void main(String[] args) throws Exception {
         //download link
@@ -16,6 +7,6 @@ public class Main {
         Downloader downloader = new Downloader();
 
         //download the file
-        downloader.download(link, 100000, 199999);
+        downloader.download(link);
     }
 }
