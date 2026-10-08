@@ -23,6 +23,21 @@ public class Main {
 
         if(response.statusCode() == 200) {
             System.out.println("Done: " + response.body());
+
+
+            //get the size of the file
+            long size = response.headers()
+                    .firstValueAsLong("Content-Length")
+                    .orElse(-1);
+
+
+            //check what kind of ranges the server supports
+            String ranges = response.headers()
+                    .firstValue("Accept-Ranges")
+                    .orElse("none");
+
+            System.out.println("Content-Length: " + size);
+            System.out.println("Accept-Ranges: " + ranges);
         } else {
             System.err.println("Error: " + response.statusCode());
             java.nio.file.Files.deleteIfExists(response.body());
