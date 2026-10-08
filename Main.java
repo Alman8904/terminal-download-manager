@@ -2,6 +2,10 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 
 public class Main {
     public static void main(String[] args) throws Exception {
@@ -40,6 +44,22 @@ public class Main {
 
             System.out.println("Content-Length: " + size);
             System.out.println("Accept-Ranges: " + ranges);
+
+            //open the file so we can write the downloaded bytes into it
+            try (FileChannel channel = FileChannel.open(
+                    Path.of("downloaded.file"),
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.WRITE
+            )) {
+
+                //put the downloaded bytes into a ByteBuffer
+                ByteBuffer buffer = ByteBuffer.wrap(response.body());
+
+                //write the bytes starting at position 0 in the file
+                channel.write(buffer, 0);
+            }
+
+            System.out.println("Piece written to downloaded.file");
 
         } else {
             System.err.println("Error: " + response.statusCode());
