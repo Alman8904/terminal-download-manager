@@ -1,138 +1,32 @@
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
-import java.io.InputStream;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.Future;
 
 public class Downloader {
 
-    private final HttpClient client;
-    private static final int PART_COUNT = 8;
+    private final FileInspector fileInspector;
+    private final ParallelDownloader parallelDownloader;
+    private final SequentialDownloader sequentialDownloader;
 
     public Downloader() {
-
-        //client which goes to server
-        client = HttpClient.newBuilder()
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .build();
+        fileInspector = new FileInspector();
+        parallelDownloader = new ParallelDownloader();
+        sequentialDownloader = new SequentialDownloader();
     }
-
 
     public void download(String link) throws Exception {
+        Path destination = Path.of("downloaded.file");
 
-        long fileSize = getFileSize(link);
+        long fileSize = fileInspector.getFileSize(link);
+        boolean supportsRanges = fileInspector.supportsRanges(link);
+
         System.out.println("File size: " + fileSize);
+        System.out.println("Supports ranges: " + supportsRanges);
 
-        long partSize = (fileSize + PART_COUNT - 1) / PART_COUNT;
-        System.out.println("Part size: " + partSize);
-
-        try (FileChannel channel = FileChannel.open(
-                Path.of("downloaded.file"),
-                StandardOpenOption.CREATE,
-                StandardOpenOption.WRITE,
-                StandardOpenOption.TRUNCATE_EXISTING
-        )) {
-            try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
-
-                List<Future<?>> tasks = new ArrayList<>();
-
-                for (long start = 0; start < fileSize; start += partSize) {
-                    long end = Math.min(start + partSize - 1, fileSize - 1);
-                    long partStart = start;
-                    long partEnd = end;
-
-                    System.out.println("Submitting: " + partStart + "-" + partEnd);
-
-                    tasks.add(executor.submit(() -> {
-                        try {
-                            downloadPart(link, partStart, partEnd, channel);
-                        } catch (Exception e) {
-                            throw new RuntimeException(e);
-                        }
-                    }));
-                }
-
-                for (Future<?> task : tasks) {
-                    task.get();
-                }
-            }
-        }
-
-        System.out.println("Done");
-    }
-
-
-    private long getFileSize(String link) throws Exception {
-
-        HttpRequest request = HttpRequest.newBuilder(URI.create(link))
-                .method("HEAD", HttpRequest.BodyPublishers.noBody())
-                .build();
-
-        HttpResponse<Void> response = client.send(
-                request,
-                HttpResponse.BodyHandlers.discarding()
-        );
-
-        return response.headers()
-                .firstValueAsLong("Content-Length")
-                .orElse(-1);
-    }
-
-    private void downloadPart(String link, long start, long end, FileChannel channel) throws Exception {
-        //request is needed by the client to give to the server
-        HttpRequest request = HttpRequest.newBuilder(URI.create(link))
-                //giving instructions to the server
-                .header("Range", "bytes=" + start + "-" + end)
-                .build();
-
-        //response is what the server gives back to the client
-        HttpResponse<InputStream> response = client.send(
-                request,
-                HttpResponse.BodyHandlers.ofInputStream()
-        );
-
-        if (response.statusCode() == 206) {
-            System.out.println("Partial download successful");
-
-            long size = response.headers()
-                    .firstValueAsLong("Content-Length")
-                    .orElse(-1);
-
-            String ranges = response.headers()
-                    .firstValue("Accept-Ranges")
-                    .orElse("none");
-
-            System.out.println("Content-Length: " + size);
-            System.out.println("Accept-Ranges: " + ranges);
-
-            //open the file so we can write the downloaded bytes into it
-            try (InputStream input = response.body()) {
-                byte[] buffer = new byte[8192];
-                long position = start;
-                int bytesRead;
-
-                while ((bytesRead = input.read(buffer)) != -1) {
-                    ByteBuffer byteBuffer = ByteBuffer.wrap(buffer, 0, bytesRead);
-
-                    while (byteBuffer.hasRemaining()) {
-                        position += channel.write(byteBuffer, position);
-                    }
-                }
-            }
-
-            System.out.println("written to downloaded.file");
-
+        if (supportsRanges && fileSize > 0) {
+            System.out.println("Using parallel downloader");
+            parallelDownloader.download(link, fileSize, destination);
         } else {
-            throw new RuntimeException("Part " + start + "-" + end + " failed, status " + response.statusCode());
+            System.out.println("Using sequential downloader");
+            sequentialDownloader.download(link, destination);
         }
     }
 }
