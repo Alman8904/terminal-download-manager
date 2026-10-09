@@ -9,6 +9,9 @@ import java.nio.file.StandardOpenOption;
 import java.io.InputStream;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.Future;
 
 public class Downloader {
 
@@ -23,6 +26,7 @@ public class Downloader {
                 .build();
     }
 
+
     public void download(String link) throws Exception {
 
         long fileSize = getFileSize(link);
@@ -31,74 +35,41 @@ public class Downloader {
         long partSize = (fileSize + PART_COUNT - 1) / PART_COUNT;
         System.out.println("Part size: " + partSize);
 
-        for (long start = 0; start < fileSize; start += partSize) {
+        try (FileChannel channel = FileChannel.open(
+                Path.of("downloaded.file"),
+                StandardOpenOption.CREATE,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.TRUNCATE_EXISTING
+        )) {
+            try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
 
-            long end = Math.min(start + partSize - 1, fileSize - 1);
+                List<Future<?>> tasks = new ArrayList<>();
 
-            System.out.println("Downloading: " + start + "-" + end);
+                for (long start = 0; start < fileSize; start += partSize) {
+                    long end = Math.min(start + partSize - 1, fileSize - 1);
+                    long partStart = start;
+                    long partEnd = end;
 
-            //request is needed by the client to give to the server
-            HttpRequest request = HttpRequest.newBuilder(URI.create(link))
-                    //giving instructions to the server
-                    .header("Range", "bytes=" + start + "-" + end)
-                    .build();
+                    System.out.println("Submitting: " + partStart + "-" + partEnd);
 
-            //response is what the server gives back to the client
-            HttpResponse<InputStream> response = client.send(
-                    request,
-                    HttpResponse.BodyHandlers.ofInputStream()
-            );
-
-            if(response.statusCode() == 206) {
-                System.out.println("Partial download successful");
-
-                long size = response.headers()
-                        .firstValueAsLong("Content-Length")
-                        .orElse(-1);
-
-                String ranges = response.headers()
-                        .firstValue("Accept-Ranges")
-                        .orElse("none");
-
-                System.out.println("Content-Length: " + size);
-                System.out.println("Accept-Ranges: " + ranges);
-
-                //open the file so we can write the downloaded bytes into it
-                try (FileChannel channel = FileChannel.open(
-                        Path.of("downloaded.file"),
-                        StandardOpenOption.CREATE,
-                        StandardOpenOption.WRITE
-                )) {
-
-                    InputStream input = response.body();
-
-                    byte[] buffer = new byte[8192];
-                    long position = start;
-                    int bytesRead;
-
-                    while ((bytesRead = input.read(buffer)) != -1) {
-
-                        ByteBuffer byteBuffer = ByteBuffer.wrap(buffer, 0, bytesRead);
-
-                        while (byteBuffer.hasRemaining()) {
-                            position += channel.write(byteBuffer, position);
+                    tasks.add(executor.submit(() -> {
+                        try {
+                            downloadPart(link, partStart, partEnd, channel);
+                        } catch (Exception e) {
+                            throw new RuntimeException(e);
                         }
-                    }
-
-                    input.close();
+                    }));
                 }
 
-                System.out.println("written to downloaded.file");
-
-            } else {
-                System.err.println("Error: " + response.statusCode());
-                System.err.println("Response body: " + response.body());
-                System.err.println("Response headers: " + response.headers());
-
-                return;
+                for (Future<?> task : tasks) {
+                    task.get();
+                }
             }
         }
+
+        System.out.println("Done");
     }
+
 
     private long getFileSize(String link) throws Exception {
 
@@ -114,5 +85,54 @@ public class Downloader {
         return response.headers()
                 .firstValueAsLong("Content-Length")
                 .orElse(-1);
+    }
+
+    private void downloadPart(String link, long start, long end, FileChannel channel) throws Exception {
+        //request is needed by the client to give to the server
+        HttpRequest request = HttpRequest.newBuilder(URI.create(link))
+                //giving instructions to the server
+                .header("Range", "bytes=" + start + "-" + end)
+                .build();
+
+        //response is what the server gives back to the client
+        HttpResponse<InputStream> response = client.send(
+                request,
+                HttpResponse.BodyHandlers.ofInputStream()
+        );
+
+        if (response.statusCode() == 206) {
+            System.out.println("Partial download successful");
+
+            long size = response.headers()
+                    .firstValueAsLong("Content-Length")
+                    .orElse(-1);
+
+            String ranges = response.headers()
+                    .firstValue("Accept-Ranges")
+                    .orElse("none");
+
+            System.out.println("Content-Length: " + size);
+            System.out.println("Accept-Ranges: " + ranges);
+
+            //open the file so we can write the downloaded bytes into it
+            try (InputStream input = response.body()) {
+                byte[] buffer = new byte[8192];
+                long position = start;
+                int bytesRead;
+
+                while ((bytesRead = input.read(buffer)) != -1) {
+                    ByteBuffer byteBuffer = ByteBuffer.wrap(buffer, 0, bytesRead);
+
+                    while (byteBuffer.hasRemaining()) {
+                        position += channel.write(byteBuffer, position);
+                    }
+                }
+            }
+
+            System.out.println("written to downloaded.file");
+
+        } else {
+            throw new RuntimeException("Part " + start + "-" + end + " failed, status " + response.statusCode());
+        }
     }
 }
