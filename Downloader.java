@@ -12,9 +12,7 @@ public class Downloader {
         sequentialDownloader = new SequentialDownloader();
     }
 
-    public void download(String link) throws Exception {
-        Path destination = Path.of("downloaded.file");
-
+    public void download(String link, Path destination) throws Exception {
         long fileSize = fileInspector.getFileSize(link);
         boolean supportsRanges = fileInspector.supportsRanges(link);
 

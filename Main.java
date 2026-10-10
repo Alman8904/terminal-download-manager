@@ -1,12 +1,32 @@
+import java.net.URI;
+import java.nio.file.Path;
+import java.util.Scanner;
+
 public class Main {
     public static void main(String[] args) throws Exception {
-        //download link
-        String link = "https://comicvine.gamespot.com/a/uploads/original/11143/111432035/7944488-1654581-invincible.77.20.jpg";
+        String link;
+        if (args.length > 0) {
+            link = args[0];
+        } else {
+            System.out.print("Paste a link: ");
+            link = new Scanner(System.in).nextLine().trim();
+        }
 
-        //create a downloader object
-        Downloader downloader = new Downloader();
+        if (link.isEmpty()) {
+            System.out.println("No link given.");
+            return;
+        }
 
-        //download the file
-        downloader.download(link);
+        String name = args.length > 1 ? args[1] : fileNameFrom(link);
+        new Downloader().download(link, Path.of(name));
+    }
+
+    private static String fileNameFrom(String link) {
+        String path = URI.create(link).getPath();
+        String name = path == null ? "" : path.substring(path.lastIndexOf('/') + 1);
+        if (name.isEmpty() || name.equals(".") || name.equals("..")) {
+            return "downloaded.file";
+        }
+        return name;
     }
 }
