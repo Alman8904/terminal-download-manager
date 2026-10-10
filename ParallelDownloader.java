@@ -18,6 +18,7 @@ public class ParallelDownloader {
     private final HttpClient client;
     private static final int PART_COUNT = 8;
     private DownloadState downloadState;
+    private ProgressTracker progress;
 
     public ParallelDownloader() {
         client = HttpClient.newBuilder()
@@ -54,10 +55,21 @@ public class ParallelDownloader {
         }
 
         long partSize = (fileSize + PART_COUNT - 1) / PART_COUNT;
+        progress = new ProgressTracker(fileSize, PART_COUNT, partSize);
 
         StandardOpenOption[] options = resume
                 ? new StandardOpenOption[]{StandardOpenOption.CREATE, StandardOpenOption.WRITE}
                 : new StandardOpenOption[]{StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING};
+
+        Thread printer = Thread.ofVirtual().start(() -> {
+            try {
+                while (true) {
+                    progress.print();
+                    Thread.sleep(200);
+                }
+            } catch (InterruptedException e) {
+            }
+        });
 
         try (FileChannel channel = FileChannel.open(destination, options)) {
             try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
@@ -69,7 +81,7 @@ public class ParallelDownloader {
                     long end = Math.min(start + partSize - 1, fileSize - 1);
 
                     if ("true".equals(downloadState.get("part." + i))) {
-                        System.out.println("Skipping part " + i + " (already done)");
+                        progress.markSkipped(i);
                         continue;
                     }
 
@@ -79,7 +91,7 @@ public class ParallelDownloader {
 
                     tasks.add(executor.submit(() -> {
                         try {
-                            downloadPart(link, partStart, partEnd, channel);
+                            downloadPart(link, partStart, partEnd, channel, partIndex);
                             markPartDone(partIndex);
                         } catch (Exception e) {
                             throw new RuntimeException(e);
@@ -91,15 +103,17 @@ public class ParallelDownloader {
                     task.get();
                 }
             }
+        } finally {
+            printer.interrupt();
         }
 
+        progress.print();
         java.nio.file.Files.deleteIfExists(stateFile);
         System.out.println("Parallel download complete: " + destination);
     }
 
     private synchronized void markPartDone(int index) {
         downloadState.set("part." + index, "true");
-        System.out.println("Part " + index + " done");
         try {
             downloadState.save();
         } catch (java.io.IOException e) {
@@ -108,7 +122,7 @@ public class ParallelDownloader {
     }
 
     private void downloadPart(
-            String link, long start, long end, FileChannel channel
+            String link, long start, long end, FileChannel channel, int partIndex
     ) throws Exception {
         HttpRequest request = HttpRequest.newBuilder(URI.create(link))
                 .header("Range", "bytes=" + start + "-" + end)
@@ -134,6 +148,7 @@ public class ParallelDownloader {
             int bytesRead;
 
             while ((bytesRead = input.read(buffer)) != -1) {
+                progress.add(partIndex, bytesRead);
                 ByteBuffer byteBuffer = ByteBuffer.wrap(buffer, 0, bytesRead);
 
                 while (byteBuffer.hasRemaining()) {
