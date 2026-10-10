@@ -17,6 +17,7 @@ public class ParallelDownloader {
 
     private final HttpClient client;
     private static final int PART_COUNT = 8;
+    private DownloadState downloadState;
 
     public ParallelDownloader() {
         client = HttpClient.newBuilder()
@@ -29,25 +30,57 @@ public class ParallelDownloader {
             throw new RuntimeException("Invalid file size: " + fileSize);
         }
 
+        Path stateFile = destination.resolveSibling(
+                destination.getFileName() + ".state"
+        );
+
+        downloadState = new DownloadState(stateFile);
+        downloadState.load();
+
+        boolean resume = link.equals(downloadState.get("url"))
+                && String.valueOf(fileSize).equals(downloadState.get("fileSize"))
+                && java.nio.file.Files.exists(destination);
+
+        if (!resume) {
+            downloadState = new DownloadState(stateFile);
+            downloadState.set("url", link);
+            downloadState.set("fileSize", String.valueOf(fileSize));
+
+            for (int i = 0; i < PART_COUNT; i++) {
+                downloadState.set("part." + i, "false");
+            }
+
+            downloadState.save();
+        }
+
         long partSize = (fileSize + PART_COUNT - 1) / PART_COUNT;
 
-        try (FileChannel channel = FileChannel.open(
-                destination,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.WRITE,
-                StandardOpenOption.TRUNCATE_EXISTING
-        )) {
+        StandardOpenOption[] options = resume
+                ? new StandardOpenOption[]{StandardOpenOption.CREATE, StandardOpenOption.WRITE}
+                : new StandardOpenOption[]{StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING};
+
+        try (FileChannel channel = FileChannel.open(destination, options)) {
             try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
                 List<Future<?>> tasks = new ArrayList<>();
 
-                for (long start = 0; start < fileSize; start += partSize) {
+                for (int i = 0; i < PART_COUNT; i++) {
+                    long start = i * partSize;
+                    if (start >= fileSize) break;
                     long end = Math.min(start + partSize - 1, fileSize - 1);
+
+                    if ("true".equals(downloadState.get("part." + i))) {
+                        System.out.println("Skipping part " + i + " (already done)");
+                        continue;
+                    }
+
+                    int partIndex = i;
                     long partStart = start;
                     long partEnd = end;
 
                     tasks.add(executor.submit(() -> {
                         try {
                             downloadPart(link, partStart, partEnd, channel);
+                            markPartDone(partIndex);
                         } catch (Exception e) {
                             throw new RuntimeException(e);
                         }
@@ -60,7 +93,18 @@ public class ParallelDownloader {
             }
         }
 
+        java.nio.file.Files.deleteIfExists(stateFile);
         System.out.println("Parallel download complete: " + destination);
+    }
+
+    private synchronized void markPartDone(int index) {
+        downloadState.set("part." + index, "true");
+        System.out.println("Part " + index + " done");
+        try {
+            downloadState.save();
+        } catch (java.io.IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private void downloadPart(
