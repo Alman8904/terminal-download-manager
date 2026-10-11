@@ -1,4 +1,4 @@
-```powershell
+
 $ErrorActionPreference = "Stop"
 
 $Repo = "Alman8904/terminal-download-manager"
@@ -11,30 +11,57 @@ $TempJar = Join-Path $InstallDir "termget.jar.tmp"
 $LauncherPath = Join-Path $BinDir "termget.cmd"
 
 try {
-    # Check Java availability.
-    if (-not (Get-Command java -ErrorAction SilentlyContinue)) {
+    # Locate Java without printing its output.
+    $JavaCommand = Get-Command java -ErrorAction SilentlyContinue
+
+    if (-not $JavaCommand) {
         throw "Java 21 or newer is required. Install Java and reopen your terminal."
     }
 
-    $VersionOutput = (& java -version 2>&1 | Out-String)
+    # Capture stdout and stderr directly through .NET.
+    $StartInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $StartInfo.FileName = $JavaCommand.Source
+    $StartInfo.Arguments = "-version"
+    $StartInfo.UseShellExecute = $false
+    $StartInfo.CreateNoWindow = $true
+    $StartInfo.RedirectStandardOutput = $true
+    $StartInfo.RedirectStandardError = $true
 
-    if ($VersionOutput -notmatch 'version "(\d+)') {
-        throw "Could not determine the Java version."
+    $JavaProcess = New-Object System.Diagnostics.Process
+    $JavaProcess.StartInfo = $StartInfo
+
+    [void]$JavaProcess.Start()
+
+    $StdOutTask = $JavaProcess.StandardOutput.ReadToEndAsync()
+    $StdErrTask = $JavaProcess.StandardError.ReadToEndAsync()
+
+    $JavaProcess.WaitForExit()
+
+    $VersionOutput = $StdOutTask.Result + "`n" + $StdErrTask.Result
+    $JavaProcess.Dispose()
+
+    $VersionMatch = [regex]::Match(
+        $VersionOutput,
+        'version "(\d+)'
+    )
+
+    if (-not $VersionMatch.Success) {
+        throw "Could not determine the installed Java version."
     }
 
-    $JavaVersion = [int]$Matches[1]
+    $JavaVersion = [int]$VersionMatch.Groups[1].Value
 
     if ($JavaVersion -lt 21) {
         throw "Java 21 or newer is required. Found Java $JavaVersion."
     }
 
-    # Create installation directories.
+    # Prepare installation directories.
     New-Item -ItemType Directory -Force -Path $InstallDir, $BinDir |
         Out-Null
 
-    # Download to a temporary file first.
     Remove-Item $TempJar -Force -ErrorAction SilentlyContinue
 
+    # Download the release JAR.
     Write-Host "Downloading termget..."
     Invoke-WebRequest -Uri $JarUrl -OutFile $TempJar
 
@@ -43,8 +70,10 @@ try {
         throw "The downloaded JAR is empty or missing."
     }
 
-    # Verify that the file is a readable JAR with the expected main class.
+    # Validate the JAR manifest before replacing the installed JAR.
     Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+
     $Archive = [System.IO.Compression.ZipFile]::OpenRead($TempJar)
 
     try {
@@ -55,6 +84,7 @@ try {
         }
 
         $Reader = [System.IO.StreamReader]::new($ManifestEntry.Open())
+
         try {
             $Manifest = $Reader.ReadToEnd()
         }
@@ -70,10 +100,10 @@ try {
         $Archive.Dispose()
     }
 
-    # Replace the application JAR only after validation.
+    # Install the validated JAR.
     Move-Item -Path $TempJar -Destination $JarPath -Force
 
-    # Create a launcher usable from CMD and PowerShell.
+    # Create the command launcher.
     @'
 @echo off
 java -jar "%LOCALAPPDATA%\termget\termget.jar" %*
@@ -97,17 +127,20 @@ exit /b %ERRORLEVEL%
     if (-not $AlreadyPresent) {
         $NewUserPath = if ([string]::IsNullOrWhiteSpace($UserPath)) {
             $BinDir
-        } else {
+        }
+        else {
             "$UserPath;$BinDir"
         }
 
         [Environment]::SetEnvironmentVariable("Path", $NewUserPath, "User")
     }
 
-    # Make termget available in the current PowerShell session.
+    # Update PATH in the current PowerShell session.
     $CurrentEntries = @(
         $env:Path -split ";" |
-        Where-Object { $_.TrimEnd("\") -ieq $BinDir.TrimEnd("\") }
+        Where-Object {
+            $_.TrimEnd("\") -ieq $BinDir.TrimEnd("\")
+        }
     )
 
     if ($CurrentEntries.Count -eq 0) {
@@ -117,14 +150,12 @@ exit /b %ERRORLEVEL%
     Write-Host ""
     Write-Host "termget installed successfully."
     Write-Host 'Usage: termget "https://example.com/file.zip"'
-    Write-Host "Downloaded files are saved in your Downloads folder."
-    Write-Host "If the command is not recognized in a new terminal, reopen it."
+    Write-Host "Downloads are saved in your Downloads folder."
 }
 catch {
-    Write-Error $_
+    Write-Host "Installation failed: $($_.Exception.Message)" -ForegroundColor Red
     exit 1
 }
 finally {
     Remove-Item $TempJar -Force -ErrorAction SilentlyContinue
 }
-```
