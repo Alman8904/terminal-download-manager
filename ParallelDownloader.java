@@ -35,12 +35,16 @@ public class ParallelDownloader {
                 destination.getFileName() + ".state"
         );
 
+        Path partFile = destination.resolveSibling(
+                destination.getFileName() + ".part"
+        );
+
         downloadState = new DownloadState(stateFile);
         downloadState.load();
 
         boolean resume = link.equals(downloadState.get("url"))
                 && String.valueOf(fileSize).equals(downloadState.get("fileSize"))
-                && java.nio.file.Files.exists(destination);
+                && java.nio.file.Files.exists(partFile);
 
         if (!resume) {
             downloadState = new DownloadState(stateFile);
@@ -71,7 +75,7 @@ public class ParallelDownloader {
             }
         });
 
-        try (FileChannel channel = FileChannel.open(destination, options)) {
+        try (FileChannel channel = FileChannel.open(partFile, options)) {
             try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
                 List<Future<?>> tasks = new ArrayList<>();
 
@@ -108,6 +112,8 @@ public class ParallelDownloader {
         }
 
         progress.print();
+        java.nio.file.Files.move(partFile, destination,
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
         java.nio.file.Files.deleteIfExists(stateFile);
         System.out.println("Parallel download complete: " + destination);
     }
