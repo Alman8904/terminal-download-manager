@@ -2,7 +2,7 @@
 
 A Java-based terminal download manager that supports parallel downloads when the server supports HTTP range requests, with sequential fallback when it doesn't.
 
-## Linux
+## 🐧 Linux
 
 ### Installation
 
@@ -10,7 +10,7 @@ A Java-based terminal download manager that supports parallel downloads when the
 
 Open a terminal and run:
 
-```bash
+```
 curl -fsSL https://raw.githubusercontent.com/Alman8904/terminal-download-manager/master/install.sh | bash
 ```
 
@@ -20,7 +20,7 @@ The installer downloads and installs termget automatically. No administrator pri
 
 To download a file, run:
 
-```bash
+```
 termget "https://example.com/file.zip"
 ```
 
@@ -32,7 +32,7 @@ Downloaded files are saved in `~/Downloads`.
 
 Run:
 
-```bash
+```
 rm -rf "$HOME/.local/share/termget" "$HOME/.local/bin/termget"
 ```
 
@@ -40,25 +40,48 @@ This removes termget and its launcher but does not delete your downloaded files.
 
 ### Troubleshooting
 
-See the [Troubleshooting Guide](TROUBLESHOOTING.md#linux).
+See the [Troubleshooting Guide](https://github.com/Alman8904/terminal-download-manager/blob/master/TROUBLESHOOTING.md#linux).
 
-## Windows
+## 🪟 Windows
 
 ### Installation
 
-Windows installation instructions will be added when Windows support is ready.
+**Requirement:** Java 21 or newer.
+
+Open PowerShell and run:
+
+```
+irm https://raw.githubusercontent.com/Alman8904/terminal-download-manager/master/install.ps1 | iex
+```
+
+The installer downloads and installs termget without requiring administrator privileges.
 
 ### Usage
 
-Windows usage instructions will be added with the Windows release.
+To download a file, run this in Command Prompt or PowerShell:
+
+```
+termget "https://example.com/file.zip"
+```
+
+Replace the example URL with a direct download link to the file you want.
+
+Downloaded files are saved in your Windows Downloads folder.
 
 ### Uninstallation
 
-Windows uninstallation instructions will be added with the Windows release.
+Open PowerShell and run:
+
+```
+Remove-Item "$env:LOCALAPPDATA\termget" -Recurse -Force
+Remove-Item "$env:USERPROFILE\.local\bin\termget.cmd" -Force -ErrorAction SilentlyContinue
+```
+
+This removes termget and its launcher but does not delete your downloaded files. The install directory may remain in your user PATH.
 
 ### Troubleshooting
 
-Windows troubleshooting instructions will be added with the Windows release.
+See the [Troubleshooting Guide](https://github.com/Alman8904/terminal-download-manager/blob/master/TROUBLESHOOTING.md#windows).
 
 ## Features
 
@@ -78,5 +101,6 @@ Windows troubleshooting instructions will be added with the Windows release.
 
 ### Windows
 
-Requirements will be documented with the Windows release.
-
+- Java 21 or newer
+- Windows PowerShell or PowerShell 7 for installation
+- Command Prompt or PowerShell for usage
