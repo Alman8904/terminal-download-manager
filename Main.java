@@ -1,6 +1,7 @@
 import java.net.URI;
 import java.nio.file.Path;
 import java.util.Scanner;
+import java.nio.file.Files;
 
 public class Main {
     public static void main(String[] args) throws Exception {
@@ -18,7 +19,9 @@ public class Main {
         }
 
         String name = args.length > 1 ? args[1] : fileNameFrom(link);
-        new Downloader().download(link, Path.of(name));
+        Path dir = Path.of(System.getProperty("user.home"), "Downloads");
+        Files.createDirectories(dir);
+        new Downloader().download(link, dir.resolve(name));
     }
 
     private static String fileNameFrom(String link) {
