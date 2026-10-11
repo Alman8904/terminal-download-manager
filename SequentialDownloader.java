@@ -41,6 +41,8 @@ public class SequentialDownloader {
         long lastPrint = 0;
         long done = 0;
 
+        String abortReason = null;
+        boolean checked = false;
         try (InputStream input = response.body();
              OutputStream output = Files.newOutputStream(destination)) {
 
@@ -48,6 +50,11 @@ public class SequentialDownloader {
             int bytesRead;
 
             while ((bytesRead = input.read(buffer)) != -1) {
+                if (!checked) {
+                    checked = true;
+                    abortReason = MagicCheck.check(destination.getFileName().toString(), buffer, bytesRead);
+                    if (abortReason != null) break;
+                }
                 output.write(buffer, 0, bytesRead);
                 done += bytesRead;
 
@@ -65,6 +72,12 @@ public class SequentialDownloader {
                     }
                 }
             }
+        }
+
+        if (abortReason != null) {
+            Files.deleteIfExists(destination);
+            System.out.println("\nABORTED: " + abortReason);
+            return;
         }
 
         if (progress != null) {
